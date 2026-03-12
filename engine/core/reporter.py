@@ -10,8 +10,10 @@ def print_runtime_summary(language: str, mode: str, reason: str, diff_result, sc
     print(f"reason               : {reason}")
     print(f"base_ref             : {diff_result.base_ref}")
     print(f"head_ref             : {diff_result.head_ref}")
-    print(f"effective_base_ref   : {diff_result.effective_base_ref}")
-    print(f"effective_head_ref   : {diff_result.effective_head_ref}")
+    effective_base_ref = getattr(diff_result, "effective_base_ref", diff_result.base_ref)
+    effective_head_ref = getattr(diff_result, "effective_head_ref", diff_result.head_ref)
+    print(f"effective_base_ref   : {effective_base_ref}")
+    print(f"effective_head_ref   : {effective_head_ref}")
     print(f"changed_files_count  : {len(diff_result.all_changed_files)}")
     print(
         f"scanned_files_count  : "
