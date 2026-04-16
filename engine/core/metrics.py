@@ -1,44 +1,41 @@
-from typing import Dict, Optional
+from dataclasses import dataclass, asdict
+from typing import Any, Dict
 
 
-def safe_divide(numerator: float, denominator: float) -> Optional[float]:
-    if denominator == 0:
-        return None
-    return numerator / denominator
+@dataclass
+class ScanMetrics:
+    tool: str
+    mode: str
+    targets_count: int
+    duration_seconds: float
+    findings_count: int
+    returncode: int
+    trigger_reason: str
 
 
-def compute_comparison_metrics(
-    incremental_result: Dict,
-    full_result: Dict,
-) -> Dict:
-    incremental_time_seconds = float(incremental_result.get("duration_seconds", 0.0))
-    full_time_seconds = float(full_result.get("duration_seconds", 0.0))
+def build_scan_metrics(
+    tool_name: str,
+    mode: str,
+    trigger_reason: str,
+    scan_result: Dict[str, Any],
+) -> ScanMetrics:
+    return ScanMetrics(
+        tool=tool_name,
+        mode=mode,
+        targets_count=len(scan_result.get("targets", [])),
+        duration_seconds=float(scan_result.get("duration_seconds", 0.0)),
+        findings_count=int(scan_result.get("findings_count", 0)),
+        returncode=int(scan_result.get("returncode", 0)),
+        trigger_reason=trigger_reason,
+    )
 
-    incremental_findings = int(incremental_result.get("findings_count", 0))
-    full_findings = int(full_result.get("findings_count", 0))
 
-    time_saved_seconds = full_time_seconds - incremental_time_seconds
-    time_saved_minutes = time_saved_seconds / 60
+def scan_metrics_to_dict(metrics: ScanMetrics, decimal_comma: bool = False) -> Dict[str, Any]:
+    payload = asdict(metrics)
 
-    speedup_ratio = safe_divide(full_time_seconds, incremental_time_seconds)
-    incremental_vs_full_time_ratio = safe_divide(incremental_time_seconds, full_time_seconds)
+    if decimal_comma:
+        payload["duration_seconds"] = f"{metrics.duration_seconds:.4f}"
+    else:
+        payload["duration_seconds"] = round(metrics.duration_seconds, 4)
 
-    findings_diff = full_findings - incremental_findings
-
-    return {
-        "incremental_time_seconds": round(incremental_time_seconds, 4),
-        "full_time_seconds": round(full_time_seconds, 4),
-        "time_saved_seconds": round(time_saved_seconds, 4),
-        "time_saved_minutes": round(time_saved_minutes, 4),
-        "speedup_ratio": round(speedup_ratio, 4) if speedup_ratio is not None else None,
-        "incremental_vs_full_time_ratio": (
-            round(incremental_vs_full_time_ratio, 4)
-            if incremental_vs_full_time_ratio is not None
-            else None
-        ),
-        "incremental_findings": incremental_findings,
-        "full_findings": full_findings,
-        "findings_diff": findings_diff,
-        "incremental_returncode": int(incremental_result.get("returncode", 1)),
-        "full_returncode": int(full_result.get("returncode", 1)),
-    }
+    return payload

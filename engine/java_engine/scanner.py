@@ -1,10 +1,12 @@
 import json
 import subprocess
+import tempfile
 import time
-from typing import Dict, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 
-def run_command(cmd, cwd=None):
+def run_command(cmd: List[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         cmd,
         cwd=cwd,
@@ -14,57 +16,120 @@ def run_command(cmd, cwd=None):
     )
 
 
-def _parse_findings_count(stdout: str) -> int:
-    if not stdout.strip():
+# ---------------------------
+# Semgrep helpers
+# ---------------------------
+
+def extract_semgrep_findings_count(stdout_text: str) -> int:
+    if not stdout_text.strip():
         return 0
 
     try:
-        payload = json.loads(stdout)
+        payload = json.loads(stdout_text)
         return len(payload.get("results", []))
     except json.JSONDecodeError:
         return -1
 
 
-def _run_semgrep(repo_path: str, targets: List[str], config: str) -> Dict:
-    cmd = ["semgrep", "scan", "--config", config, "--json", *targets]
+def safe_parse_semgrep_results(stdout_text: str) -> List[Dict[str, Any]]:
+    if not stdout_text or not stdout_text.strip():
+        return []
 
-    start = time.perf_counter()
+    try:
+        payload = json.loads(stdout_text)
+    except json.JSONDecodeError:
+        return []
+
+    results = payload.get("results", [])
+    return results if isinstance(results, list) else []
+
+
+def run_semgrep(repo_path: Path, targets: List[str], config_path: Path) -> Dict[str, Any]:
+    cmd = [
+        "semgrep",
+        "scan",
+        "--config",
+        str(config_path),
+        "--json",
+        *targets,
+    ]
+
+    started = time.perf_counter()
     result = run_command(cmd, cwd=repo_path)
-    end = time.perf_counter()
+    finished = time.perf_counter()
 
-    elapsed_seconds = end - start
+    duration_seconds = round(finished - started, 4)
+    findings_count = extract_semgrep_findings_count(result.stdout)
 
     return {
+        "tool": "semgrep",
+        "targets": list(targets),
         "returncode": result.returncode,
-        "duration_seconds": round(elapsed_seconds, 4),
-        "duration_minutes": round(elapsed_seconds / 60, 4),
-        "findings_count": _parse_findings_count(result.stdout),
+        "duration_seconds": duration_seconds,
+        "findings_count": findings_count,
         "stderr": result.stderr.strip(),
-        "command": " ".join(cmd),
+        "stdout_json": result.stdout.strip(),
     }
 
 
-def scan_full(repo_path: str, config: str) -> Dict:
-    return _run_semgrep(
-        repo_path=repo_path,
-        targets=["."],
-        config=config,
-    )
+# ---------------------------
+# Gitleaks helpers
+# ---------------------------
+
+def safe_parse_gitleaks_results(stdout_text: str) -> List[Dict[str, Any]]:
+    if not stdout_text or not stdout_text.strip():
+        return []
+
+    try:
+        payload = json.loads(stdout_text)
+    except json.JSONDecodeError:
+        return []
+
+    return payload if isinstance(payload, list) else []
 
 
-def scan_incremental(repo_path: str, targets: List[str], config: str) -> Dict:
-    if not targets:
+def run_gitleaks(repo_path: Path, targets: List[str]) -> Dict[str, Any]:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        if targets == ["."]:
+            scan_root = str(repo_path)
+        else:
+            temp_root = Path(tmpdir)
+
+            for rel_path in targets:
+                src = repo_path / rel_path
+                if not src.exists() or not src.is_file():
+                    continue
+
+                dst = temp_root / rel_path
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(src.read_bytes())
+
+            scan_root = str(temp_root)
+
+        cmd = [
+            "gitleaks",
+            "dir",
+            scan_root,
+            "--report-format",
+            "json",
+            "--report-path",
+            "-",
+            "--no-banner",
+        ]
+
+        started = time.perf_counter()
+        result = run_command(cmd, cwd=repo_path)
+        finished = time.perf_counter()
+
+        duration_seconds = round(finished - started, 4)
+        findings = safe_parse_gitleaks_results(result.stdout)
+
         return {
-            "returncode": 0,
-            "duration_seconds": 0.0,
-            "duration_minutes": 0.0,
-            "findings_count": 0,
-            "stderr": "",
-            "command": "",
+            "tool": "gitleaks",
+            "targets": list(targets),
+            "returncode": result.returncode,
+            "duration_seconds": duration_seconds,
+            "findings_count": len(findings),
+            "stderr": result.stderr.strip(),
+            "stdout_json": result.stdout.strip(),
         }
-
-    return _run_semgrep(
-        repo_path=repo_path,
-        targets=targets,
-        config=config,
-    )
