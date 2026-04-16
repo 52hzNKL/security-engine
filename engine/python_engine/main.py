@@ -51,13 +51,6 @@ def main() -> None:
         print(f"Semgrep config path does not exist: {config_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"[main] cwd={Path.cwd()}")
-    print(f"[main] args.repo_path={args.repo_path}")
-    print(f"[main] resolved repo_path={repo_path}")
-    print(f"[main] config_path={config_path}")
-    print(f"[main] parent_commit={args.parent_commit}")
-    print(f"[main] commit={args.commit}")
-
     diff_result = build_diff_result(
         repo_path=str(repo_path),
         parent_commit=args.parent_commit,
